@@ -1,0 +1,12 @@
+---
+title: "eszters-newfile"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## This is my great new file
+
+Enhancing this repository, one commit at a time.. :)
