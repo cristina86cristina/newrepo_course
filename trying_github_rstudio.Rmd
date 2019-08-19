@@ -1,0 +1,123 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Min var analysis
+
+```{r}
+
+library(tidyverse)
+files_im  <- list.files(path="~/Dropbox/caebv_paper/deletions/variantcalling/85k_nofreq/im/",pattern = '\\.tab',full.names = TRUE)
+filenames_im <- str_split(files_im, "_variants_bbmap_lowfreq.tab", simplify = TRUE)[,1]
+filenames_im <- str_split(filenames_im, "im//", simplify = TRUE)[,2]
+
+files_caebv  <- list.files(path="~/Dropbox/caebv_paper/deletions/variantcalling/minvar/caebv/",pattern = '\\.tab',full.names = TRUE)
+filenames_caebv <- str_split(files_caebv, "_variants_bbmap_lowfreq.tab", simplify = TRUE)[,1]
+filenames_caebv <- str_split(filenames_caebv, "caebv//", simplify = TRUE)[,2]
+
+files_caebv_jc  <- list.files(path="~/Dropbox/caebv_paper/deletions/variantcalling/minvar/caebv_jc/",pattern = '\\.tab',full.names = TRUE)
+filenames_caebv_jc <- str_split(files_caebv_jc, "_variants_bbmap_lowfreq.tab", simplify = TRUE)[,1]
+filenames_caebv_jc <- str_split(filenames_caebv_jc, "caebv_jc//", simplify = TRUE)[,2]
+
+files_ptld  <- list.files(path="~/Dropbox/caebv_paper/deletions/variantcalling/minvar/ptld_blood/",pattern = '\\.tab',full.names = TRUE)
+filenames_ptld <- str_split(files_ptld, "_variants_bbmap_lowfreq.tab", simplify = TRUE)[,1]
+filenames_ptld <- str_split(filenames_ptld, "ptld_blood//", simplify = TRUE)[,2]
+
+
+#Read files 
+library(plyr)
+#data <- adply(files, 1, read.csv)
+
+data_jc <- adply(data.frame(f=I(files_caebv_jc), t=filenames_caebv_jc,group="CAEBV_S"), 1,
+                 with, rbind(read.delim(f,skip=13)))
+data_caebv <- adply(data.frame(f=I(files_caebv), t=filenames_caebv,group="CAEBV"), 1,
+                    with, rbind(read.delim(f,skip=13)))
+data_ptld <- adply(data.frame(f=I(files_ptld), t=filenames_ptld,group="PTLD-B"), 1,
+                   with, rbind(read.delim(f,skip=13)))
+
+data_im <-  adply(data.frame(f=I(files_im), t=filenames_im,group="IM"), 1,
+                  with, rbind(read.delim(f,skip=13)))
+
+
+```
+
+```{r}
+data <- rbind(data_caebv)
+data2 <- data %>% filter(type=="DEL") 
+data2$size <- data2$stop - data2$start
+#flag repeats
+reprange = read.csv('/Users/cristina/Dropbox/minority_variants_analysis/data/repeated_regions.csv',  header=F)
+repeats = c()
+for ( i in 1:nrow(reprange)){
+  repeats = c(repeats, c(reprange[i,1]:reprange[i,2]))
+}
+check <- data2$start %in% repeats
+check1 <- data2$stop %in% repeats
+data3 <- cbind(check,check1,data2)
+
+info <- read_csv("~/Dropbox/CAEBV_gosh/data/info_patients.csv")
+head(info)  
+info$t <- info$id
+data_info <- left_join(info,data3,by="t")
+
+data2var <- data %>% filter(type=="SUB") 
+checkvar <- data2var$start %in% repeats
+
+data3var <- cbind(checkvar,data2var)
+
+data4var <- data3var %>% filter(checkvar==FALSE)
+data5var <- data4var %>% filter(revisedAF >= 0.02)   
+#data5var$group <- factor(data5var$group,levels=c("healthy","IM","CAEBV_S","CAEBV","EBV+_immunoc","PTLD-B","PTLD-T","BL","HL"))
+data_info <- left_join(data5var,info,by="t")
+
+
+nvar <- data_info %>% group_by(t,patient) %>% tally()
+ggplot(nvar,aes(x=patient,y=n)) +
+  geom_point()
+
+```
+
+```{r read data}
+library(tidyverse)
+filelist = list.files(pattern = "*.tab",path="Dropbox/caebv_paper/deletions/variantcalling/minvar_varscan/",full.names = TRUE)
+datalist <- lapply(filelist, FUN=read.table, header=TRUE,as.is=TRUE)
+names(datalist) <- filelist
+#library(plyr)
+#all <- join_all(datalist,by="Position",type="full")
+combined.df <- do.call(rbind ,datalist)
+combined.df$id <- str_split(row.names(combined.df), "_all", simplify = TRUE)[,1]
+
+df.het <- as.data.frame(matrix(unlist(strsplit(combined.df[,5], split=":")), ncol=6, byrow="T"), stringsAsFactors=F)
+all <- cbind(combined.df[,1:4], df.het[,1:5], combined.df[,6],combined.df[,12])
+
+colnames(all)[5]<-"Var_touse"
+colnames(all)[6]<-"something"
+colnames(all)[7]<-"Ref.count"
+colnames(all)[8]<-"Var.count"
+colnames(all)[9]<-"VarFreq"
+colnames(all)[10]<-"StrandFilter"
+colnames(all)[11]<-"Sample"
+library(stringr)
+all$Sample <- str_split(all$Sample,pattern="_",simplify = TRUE)[,3]
+all$t <- str_split(all$Sample,pattern="//",simplify = TRUE)[,2]
+
+checkvar <- all$Position %in% repeats
+data3var <- cbind(checkvar,all)
+
+data_cleaned <- data3var  %>% filter(Ref!="N")  %>% filter(Var=="A" |Var=="T"|Var=="C"|Var=="G" ) %>% filter(checkvar=="FALSE")
+data_info <- left_join(data_cleaned,info,by="t")
+
+
+nvar <- data_info %>% group_by(t,patient) %>% tally()
+library("beeswarm")
+beeswarm(n ~ patient, data=nvar, method="swarm")
+
+data_info$freq <- str_split(data_info$VarFreq,pattern="%",simplify = TRUE)[,1]
+
+ggplot(data_info,aes(x=t,y=as.numeric(freq),colour=Position)) + 
+  geom_line() +
+  facet_wrap(~patient,scale="free_x")
+  
+```
+
